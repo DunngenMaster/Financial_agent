@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claims Triage AI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    
+    <style>
+        /* Custom styles - wrote these  after struggling with default tailwind */
+        body {
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        /* Had to fix scrollbar because default was ugly */
+        .chat-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 #f1f5f9;
+        }
+        .chat-scroll::-webkit-scrollbar {
+            width: 6px; /* tried 8px first but looked too chunky */
+        }
+        .chat-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .chat-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px; /* rounded corners look better */
+        }
+        /* Upload zone styling - took forever to get the drag/drop working right */
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease; /* smooth hover effect */
+        }
+        .upload-area.dragover {
+            border-color: #3b82f6; /* blue when dragging files over */
+            background-color: #eff6ff;
+        }
+        
+        /* Mobile sidebar animation - had issues with this on iPhone */
+        .sidebar-transition {
+            transition: transform 0.3s ease-in-out;
+        }
+        @media (max-width: 768px) {
+            .sidebar-mobile {
+                transform: translateX(-100%); /* hide sidebar off-screen */
+            }
+            .sidebar-mobile.open {
+                transform: translateX(0); /* slide it back in */
+            }
+        }
+        
+        /* Message animations - wanted something subtle but nice */
+        .message-enter {
+            animation: messageSlideIn 0.3s ease-out;
+        }
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px); /* slide up from bottom */
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        /* File upload animation - different from messages to feel more natural */
+        .file-enter {
+            animation: fileSlideIn 0.4s ease-out;
+        }
+        @keyframes fileSlideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px); /* slide in from left */
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        /* Hover effects - spent way too much time tweaking these values */
+        .hover-lift {
+            transition: all 0.2s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-2px); /* just a tiny lift, not too much */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        /* Chat bubble hover effects - AI messages */
+        .chat-bubble {
+            transition: all 0.2s ease;
+        }
+        .chat-bubble:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* subtle shadow */
+            transform: translateY(-1px);
+        }
+        
+        /* User message bubbles - slightly different blue tint */
+        .user-bubble {
+            transition: all 0.2s ease;
+        }
+        .user-bubble:hover {
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15); /* blue-ish shadow */
+            transform: translateY(-1px);
+        }
+        
+        /* Success animation when file finishes processing */
+        .upload-success {
+            animation: successPulse 0.6s ease-out;
+        }
+        @keyframes successPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); } /* tiny bounce */
+            100% { transform: scale(1); }
+        }
+        /* Loading spinner - simple rotation */
+        .processing-spinner {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); } /* full circle */
+        }
+    </style>
+   
+</head>
+
+
+<body class="bg-gray-50 h-screen flex flex-col">
+    <!-- Main header bar - logo, title, user menu -->
+    <header class="bg-white shadow-sm border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <!-- Hamburger menu for mobile - only shows on small screens -->
+            <button id="sidebarToggle" class="md:hidden p-2 rounded-lg hover:bg-gray-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+            <!-- App logo and title -->
+            <div class="flex items-center space-x-2">
+                <!-- Blue document icon as logo -->
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <h1 class="text-xl font-semibold text-gray-900">Claims Triage AI</h1>
+            </div>
+        </div>
+        <!-- Right side header menu -->
+        <div class="flex items-center space-x-3">
+            <!-- Settings button -->
+            <button class="p-2 rounded-lg hover:bg-gray-100">
+                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+            </button>
+            <!-- User avatar placeholder -->
+            <div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
+                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                </svg>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Left sidebar - file upload and document list -->
+        <aside id="sidebar" class="w-80 md:w-80 sm:w-72 bg-white border-r border-gray-200 flex flex-col sidebar-transition md:translate-x-0 sidebar-mobile absolute md:relative z-20 h-full">
+            <!-- Upload section at top of sidebar -->
+            <div class="p-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Document Upload</h2>
+                
+                <!-- Drag and drop upload zone -->
+                <div id="uploadArea" class="upload-area rounded-lg p-6 text-center mb-4 cursor-pointer">
+                    <svg class="w-12 h-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p class="text-sm text-gray-600 mb-2">Drag & drop files here</p>
+                    <p class="text-xs text-gray-500 mb-3">or click to browse</p>
+                    <button class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors">
+                        Upload Documents
+                    </button>
+                </div>
+                <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx" class="hidden">
+            </div>
+
+            <!-- Uploaded Documents -->
+            <div class="flex-1 overflow-y-auto p-4">
+                <h3 class="text-sm font-medium text-gray-900 mb-3">Uploaded Documents</h3>
+                <div id="documentList" class="space-y-3">
+                    <!-- Sample documents -->
+                    <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm hover-lift cursor-pointer">
+                        <div class="flex items-start space-x-3">
+                            <!-- File Preview Thumbnail -->
+                            <div class="w-12 h-16 bg-red-100 rounded border flex items-center justify-center flex-shrink-0">
+                                <svg class="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-sm font-medium text-gray-900 truncate">claim_report_001.pdf</span>
+                                    <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Ready to process</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mb-1">2.4 MB • 8 pages</p>
+                                <div class="flex items-center space-x-1 mb-1">
+                                    <span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">Emergency</span>
+                                    <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">High Priority</span>
+                                </div>
+                                <p class="text-xs text-gray-400">Uploaded 2 hours ago</p>
+                                <div class="mt-2 flex space-x-2">
+                                    <button class="text-xs text-blue-600 hover:text-blue-800">Preview</button>
+                                    <button class="text-xs text-red-600 hover:text-red-800">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm hover-lift cursor-pointer">
+                        <div class="flex items-start space-x-3">
+                            <!-- File Preview Thumbnail -->
+                            <div class="w-12 h-16 bg-blue-100 rounded border flex items-center justify-center flex-shrink-0">
+                                <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-sm font-medium text-gray-900 truncate">medical_records.docx</span>
+                                    <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Processing</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mb-1">1.8 MB • 12 pages</p>
+                                <div class="flex items-center space-x-1 mb-1">
+                                    <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">Outpatient</span>
+                                </div>
+                                <p class="text-xs text-gray-400">Uploaded 1 hour ago</p>
+                                <!-- Processing Progress Bar -->
+                                <div class="mt-2 mb-2">
+                                    <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                        <div class="bg-yellow-500 h-1.5 rounded-full" style="width: 65%"></div>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Processing... 65%</p>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button class="text-xs text-blue-600 hover:text-blue-800">Preview</button>
+                                    <button class="text-xs text-red-600 hover:text-red-800">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm hover-lift cursor-pointer">
+                        <div class="flex items-start space-x-3">
+                            <!-- File Preview Thumbnail -->
+                            <div class="w-12 h-16 bg-green-100 rounded border flex items-center justify-center flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                                </svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-sm font-medium text-gray-900 truncate">insurance_policy.pdf</span>
+                                    <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Analyzed</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mb-1">3.1 MB • 15 pages</p>
+                                <div class="flex items-center space-x-1 mb-1">
+                                    <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Routine</span>
+                                    <span class="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full">Policy Doc</span>
+                                </div>
+                                <p class="text-xs text-gray-400">Uploaded 3 hours ago</p>
+                                <div class="mt-2 flex space-x-2">
+                                    <button class="text-xs text-blue-600 hover:text-blue-800">View Analysis</button>
+                                    <button class="text-xs text-blue-600 hover:text-blue-800">Preview</button>
+                                    <button class="text-xs text-red-600 hover:text-red-800">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col">
+            <!-- Chat Window -->
+            <div id="chatWindow" class="flex-1 overflow-y-auto p-4 chat-scroll">
+                <div class="max-w-4xl mx-auto space-y-4">
+                    <!-- AI Welcome Message -->
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                            </svg>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 max-w-2xl chat-bubble">
+                            <p class="text-gray-900">Hello! I'm your Claims Triage AI assistant. I can help you analyze insurance claims, review documents, and provide insights. Upload your documents and ask me any questions about your claims.</p>
+                            <span class="text-xs text-gray-500 mt-2 block">Just now</span>
+                        </div>
+                    </div>
+
+                    <!-- Sample User Message -->
+                    <div class="flex items-start space-x-3 justify-end">
+                        <div class="bg-blue-600 text-white rounded-lg p-4 max-w-2xl user-bubble">
+                            <p>Can you analyze the claim report I uploaded and tell me about any potential issues?</p>
+                            <span class="text-xs text-blue-100 mt-2 block">2 hours ago</span>
+                        </div>
+                        <div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- Sample AI Response -->
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                            </svg>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 max-w-2xl chat-bubble">
+                            <p class="text-gray-900 mb-3">I've analyzed your claim report. Here are the key findings:</p>
+                            <ul class="list-disc list-inside text-gray-700 space-y-1 mb-3">
+                                <li>Claim amount: $15,750</li>
+                                <li>Incident date matches policy coverage period</li>
+                                <li>All required documentation is present</li>
+                                <li>⚠️ Minor discrepancy in damage assessment timeline</li>
+                            </ul>
+                            <p class="text-gray-900">Overall risk level: <span class="text-green-600 font-medium">Low</span>. I recommend proceeding with standard processing.</p>
+                            <span class="text-xs text-gray-500 mt-2 block">2 hours ago</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Section -->
+            <div class="border-t border-gray-200 bg-white p-4">
+                <div class="max-w-4xl mx-auto">
+                    <!-- Clear Chat Button -->
+                    <div class="flex justify-end mb-3">
+                        <button id="clearChatBtn" class="text-xs text-gray-500 hover:text-gray-700 flex items-center space-x-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H8a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                            <span>Clear Chat</span>
+                        </button>
+                    </div>
+                    <form id="chatForm" class="flex items-end space-x-2 md:space-x-3">
+                        <div class="flex-1">
+                            <textarea 
+                                id="messageInput" 
+                                placeholder="Ask me about a claim, document analysis, or fraud detection..."
+                                class="w-full resize-none border border-gray-300 rounded-lg px-3 md:px-4 py-2 md:py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm md:text-base"
+                                rows="1"
+                            ></textarea>
+                        </div>
+                        <button type="button" id="attachButton" class="p-2 md:p-3 text-gray-400 hover:text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                            <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                            </svg>
+                        </button>
+                        <button type="submit" class="bg-blue-600 text-white px-4 md:px-6 py-2 md:py-3 rounded-lg hover:bg-blue-700 transition-all duration-200 font-medium hover:shadow-lg transform hover:scale-105 active:scale-95 text-sm md:text-base">
+                            Send
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Overlay for mobile sidebar -->
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black bg-opacity-50 z-10 hidden md:hidden"></div>
+
+
+    <script>
+        // JavaScript for the Claims Triage AI Dashboard
+        // Written by me - took a while to get all the interactions working smoothly
+        
+        // Mobile sidebar toggle functionality
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+        function toggleSidebar() {
+            sidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('hidden');
+        }
+
+        // Event listeners for sidebar
+        sidebarToggle.addEventListener('click', toggleSidebar);
+        sidebarOverlay.addEventListener('click', toggleSidebar); // click outside to close
+
+        // File upload and drag/drop functionality - this was tricky to get right
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const documentList = document.getElementById('documentList');
+
+        // Click upload area to open file picker
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        // Drag and drop event handlers
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault(); // prevent default to allow drop
+            uploadArea.classList.add('dragover'); // visual feedback
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover'); // remove visual feedback
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files); // process dropped files
+        });
+
+        // Handle file input change (when user selects files)
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                // Start with Processing status and simulate the workflow
+                addDocumentToList(file.name, 'Processing', file);
+            });
+        }
+
+        function getCategoryColor(category) {
+            const colors = {
+                'Emergency': 'bg-red-100 text-red-800',
+                'Routine': 'bg-yellow-100 text-yellow-800',
+                'Outpatient': 'bg-blue-100 text-blue-800',
+                'Inpatient': 'bg-purple-100 text-purple-800',
+                'Urgent': 'bg-orange-100 text-orange-800'
+            };
+            return colors[category] || 'bg-gray-100 text-gray-800';
+        }
+
+        function getPriorityColor(priority) {
+            const colors = {
+                'High Priority': 'bg-yellow-100 text-yellow-800',
+                'Standard': 'bg-blue-100 text-blue-800',
+                'Low Priority': 'bg-gray-100 text-gray-800'
+            };
+            return colors[priority] || 'bg-gray-100 text-gray-800';
+        }
+
+        function addDocumentToList(fileName, status, file = null) {
+            const statusColors = {
+                'Ready to process': 'bg-blue-100 text-blue-800',
+                'Processing': 'bg-yellow-100 text-yellow-800',
+                'Analyzed': 'bg-green-100 text-green-800',
+                'Error': 'bg-red-100 text-red-800'
+            };
+
+            // Determine file type and color
+            const fileExt = fileName.split('.').pop().toLowerCase();
+            let fileColor = 'bg-gray-100';
+            let iconColor = 'text-gray-600';
+            
+            if (fileExt === 'pdf') {
+                fileColor = 'bg-red-100';
+                iconColor = 'text-red-600';
+            } else if (fileExt === 'doc' || fileExt === 'docx') {
+                fileColor = 'bg-blue-100';
+                iconColor = 'text-blue-600';
+            } else if (fileExt === 'txt') {
+                fileColor = 'bg-green-100';
+                iconColor = 'text-green-600';
+            }
+
+            // Generate mock file size and page count
+            const fileSize = file ? (file.size / (1024 * 1024)).toFixed(1) + ' MB' : (Math.random() * 3 + 0.5).toFixed(1) + ' MB';
+            const pageCount = Math.floor(Math.random() * 20) + 1;
+
+            // Generate random categorization tags
+            const categories = ['Emergency', 'Routine', 'Outpatient', 'Inpatient', 'Urgent'];
+            const priorities = ['High Priority', 'Standard', 'Low Priority'];
+            const types = ['Medical Record', 'Claim Form', 'Policy Doc', 'Lab Report', 'Prescription'];
+            
+            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            const showPriority = Math.random() > 0.5;
+            const randomPriority = priorities[Math.floor(Math.random() * priorities.length)];
+
+            const docElement = document.createElement('div');
+            docElement.className = 'bg-white rounded-lg p-3 border border-gray-200 shadow-sm hover-lift cursor-pointer file-enter';
+            docElement.innerHTML = `
+                <div class="flex items-start space-x-3">
+                    <!-- File Preview Thumbnail -->
+                    <div class="w-12 h-16 ${fileColor} rounded border flex items-center justify-center flex-shrink-0">
+                        <svg class="w-6 h-6 ${iconColor}" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-sm font-medium text-gray-900 truncate">${fileName}</span>
+                            <span class="text-xs ${statusColors[status]} px-2 py-1 rounded-full">${status}</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mb-1">${fileSize} • ${pageCount} pages</p>
+                        <div class="flex items-center space-x-1 mb-1">
+                            <span class="text-xs ${getCategoryColor(randomCategory)} px-2 py-1 rounded-full">${randomCategory}</span>
+                            ${showPriority ? `<span class="text-xs ${getPriorityColor(randomPriority)} px-2 py-1 rounded-full">${randomPriority}</span>` : ''}
+                            <span class="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded-full">${randomType}</span>
+                        </div>
+                        <p class="text-xs text-gray-400">Just uploaded</p>
+                        ${status === 'Processing' ? `
+                        <div class="mt-2 mb-2">
+                            <div class="flex items-center space-x-2 mb-2">
+                                <svg class="w-3 h-3 text-yellow-500 processing-spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                <span class="text-xs text-gray-500">Analyzing document...</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                <div class="bg-yellow-500 h-1.5 rounded-full processing-bar" style="width: 0%"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Processing... <span class="processing-percent">0%</span></p>
+                        </div>
+                        ` : ''}
+                        <div class="mt-2 flex space-x-2">
+                            <button class="text-xs text-blue-600 hover:text-blue-800 preview-btn">Preview</button>
+                            ${status === 'Analyzed' ? '<button class="text-xs text-blue-600 hover:text-blue-800">View Analysis</button>' : ''}
+                            <button class="text-xs text-red-600 hover:text-red-800 remove-btn">Remove</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            documentList.appendChild(docElement);
+
+            // Add event listeners
+            const removeBtn = docElement.querySelector('.remove-btn');
+            const previewBtn = docElement.querySelector('.preview-btn');
+            
+            removeBtn.addEventListener('click', () => {
+                docElement.remove();
+            });
+
+            previewBtn.addEventListener('click', () => {
+                showPreviewModal(fileName);
+            });
+
+            // Simulate processing if status is Processing
+            if (status === 'Processing') {
+                simulateProcessing(docElement);
+            }
+        }
+
+        function simulateProcessing(docElement) {
+            const progressBar = docElement.querySelector('.processing-bar');
+            const progressPercent = docElement.querySelector('.processing-percent');
+            const statusBadge = docElement.querySelector('.text-xs.bg-yellow-100');
+            
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress >= 100) {
+                    progress = 100;
+                    progressBar.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    
+                    setTimeout(() => {
+                        statusBadge.className = 'text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full';
+                        statusBadge.textContent = 'Ready to process';
+                        docElement.querySelector('.mt-2.mb-2').remove();
+                        
+                        // Add success animation
+                        docElement.classList.add('upload-success');
+                        
+                        // Show brief confirmation message
+                        showUploadConfirmation(docElement.querySelector('.text-sm.font-medium').textContent);
+                    }, 500);
+                    
+                    clearInterval(interval);
+                } else {
+                    progressBar.style.width = progress + '%';
+                    progressPercent.textContent = Math.floor(progress) + '%';
+                }
+            }, 200);
+        }
+
+        function showUploadConfirmation(fileName) {
+            // Create temporary notification
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-green-100 border border-green-200 text-green-800 px-4 py-2 rounded-lg shadow-lg z-50 flex items-center space-x-2';
+            notification.innerHTML = `
+                <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                <span class="text-sm font-medium">${fileName} ready to process!</span>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 3 seconds
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateX(100%)';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        function showPreviewModal(fileName) {
+            // Create modal overlay
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4';
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-hidden">
+                    <div class="flex items-center justify-between p-4 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Preview: ${fileName}</h3>
+                        <button class="text-gray-400 hover:text-gray-600 close-modal">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="p-6 text-center">
+                        <div class="w-32 h-40 bg-gray-100 rounded border mx-auto mb-4 flex items-center justify-center">
+                            <svg class="w-16 h-16 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                            </svg>
+                        </div>
+                        <p class="text-gray-600 mb-4">Document preview would appear here</p>
+                        <p class="text-sm text-gray-500">In a real application, this would show the first page of the document</p>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Close modal functionality
+            const closeBtn = modal.querySelector('.close-modal');
+            closeBtn.addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+        }
+
+        // Chat functionality
+        const chatForm = document.getElementById('chatForm');
+        const messageInput = document.getElementById('messageInput');
+        const chatWindow = document.getElementById('chatWindow');
+        const attachButton = document.getElementById('attachButton');
+
+        // Auto-resize textarea
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // Handle Enter key (Shift+Enter for new line)
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        chatForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            sendMessage();
+        });
+
+        attachButton.addEventListener('click', () => fileInput.click());
+
+        // Clear chat functionality
+        const clearChatBtn = document.getElementById('clearChatBtn');
+        clearChatBtn.addEventListener('click', () => {
+            const chatContainer = chatWindow.querySelector('.max-w-4xl');
+            // Keep only the welcome message (first child)
+            const welcomeMessage = chatContainer.firstElementChild;
+            chatContainer.innerHTML = '';
+            chatContainer.appendChild(welcomeMessage);
+        });
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            // Add user message to chat
+            addMessageToChat(message, 'user');
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+
+            // Show typing indicator
+            showTypingIndicator();
+            
+            // Simulate AI response
+            setTimeout(() => {
+                hideTypingIndicator();
+                const responses = [
+                    "File analyzed. Claim type: <span class='bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium'>Emergency</span>. Patient requires immediate attention based on medical records.",
+                    "Document contains inconsistencies in patient info. Date of birth doesn't match across forms. Please verify patient identity.",
+                    "Analysis complete. Claim categorized as <span class='bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium'>Routine</span>. All documentation is in order, estimated processing time: 3-5 business days.",
+                    "⚠️ Potential fraud detected. Multiple claims submitted for same incident date. Flagging for manual review.",
+                    "Medical necessity confirmed. Claim type: <span class='bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium'>Outpatient</span>. Treatment aligns with diagnosis code.",
+                    "Document processing complete. Found 3 supporting documents, 1 missing form (Prior Authorization). Claim status: Pending additional documentation.",
+                    "Risk assessment: <span class='text-green-600 font-medium'>Low Risk</span>. Standard claim with complete documentation. Recommended action: Approve for payment.",
+                    "Claim amount validation: $2,450 falls within expected range for procedure code 99213. No cost anomalies detected."
+                ];
+                const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+                addMessageToChat(randomResponse, 'ai');
+            }, 1500);
+        }
+
+        function showTypingIndicator() {
+            const chatContainer = chatWindow.querySelector('.max-w-4xl');
+            const typingElement = document.createElement('div');
+            typingElement.id = 'typingIndicator';
+            typingElement.className = 'flex items-start space-x-3';
+            typingElement.innerHTML = `
+                <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                    </svg>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 max-w-2xl">
+                    <div class="flex items-center space-x-1">
+                        <span class="text-gray-500">AI is analyzing</span>
+                        <div class="flex space-x-1">
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+                            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatContainer.appendChild(typingElement);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+        }
+
+        function addMessageToChat(message, sender) {
+            const chatContainer = chatWindow.querySelector('.max-w-4xl');
+            const messageElement = document.createElement('div');
+            
+            if (sender === 'user') {
+                messageElement.className = 'flex items-start space-x-3 justify-end message-enter';
+                messageElement.innerHTML = `
+                    <div class="bg-blue-600 text-white rounded-lg p-4 max-w-2xl user-bubble">
+                        <p>${message}</p>
+                        <span class="text-xs text-blue-100 mt-2 block">Just now</span>
+                    </div>
+                    <div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                        </svg>
+                    </div>
+                `;
+            } else {
+                messageElement.className = 'flex items-start space-x-3 message-enter';
+                messageElement.innerHTML = `
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                    </div>
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 max-w-2xl chat-bubble">
+                        <p class="text-gray-900">${message}</p>
+                        <span class="text-xs text-gray-500 mt-2 block">Just now</span>
+                    </div>
+                `;
+            }
+            
+            chatContainer.appendChild(messageElement);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+    </script>
+
+
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'988b47b09001ff34',t:'MTc1OTQ4MjM1MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
+
+
